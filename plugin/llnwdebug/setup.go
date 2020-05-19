@@ -2,8 +2,10 @@ package llnwdebug
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"time"
 
@@ -41,16 +43,38 @@ func setup(c *caddy.Controller) error {
 				time.Now().Unix(), hex.EncodeToString(b)), http.StatusFound)
 		})
 		mux.HandleFunc("/resolverinfo", func(w http.ResponseWriter, r *http.Request) {
+			type RouteInfo struct {
+				Addr string `json:"addr"`
+				ASN  string `json:"asn"`
+				Org  string `json:"org"`
+			}
+			type Response struct {
+				Resolver RouteInfo `json:"resolver,omitempty"`
+				Client   RouteInfo `json:"client"`
+			}
+
 			ld.lock.Lock()
 			defer ld.lock.Unlock()
 
+			var resp Response
+			clientAddr, _, _ := net.SplitHostPort(r.RemoteAddr)
+			resp.Client.Addr = clientAddr
+			resp.Client.ASN = "unknown"
+			resp.Client.Org = "unknown"
+
 			if ri, ok := ld.dnsRequests[r.Host+"."]; ok {
-				fmt.Fprintf(w, "HI %s %s ResolverInfo: %#v\n", r.RemoteAddr, r.Host, ri)
-				fmt.Printf("HI %s %s ResolverInfo: %#v\n", r.RemoteAddr, r.Host, ri)
+				resp.Resolver.Addr = ri
+				resp.Resolver.ASN = "unknown"
+				resp.Resolver.Org = "unknown"
+				fmt.Printf("GET from %s %s ResolverInfo: %#v\n", clientAddr, r.Host, ri)
 			} else {
-				fmt.Fprintf(w, "HI %s %s ResolverInfo not found\n", r.RemoteAddr, r.Host)
-				fmt.Printf("HI %s %s ResolverInfo not found\n", r.RemoteAddr, r.Host)
+				fmt.Printf("GET from %s %s ResolverInfo: unknown\n", clientAddr, r.Host)
 			}
+
+			w.Header().Add("Content-Type", "application/json")
+			enc := json.NewEncoder(w)
+			enc.Encode(&resp)
+
 		})
 		go func() { http.Serve(ln, mux) }()
 		return nil
