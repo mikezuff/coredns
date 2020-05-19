@@ -1,8 +1,11 @@
 package llnwdebug
 
 import (
+	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/caddyserver/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
@@ -31,6 +34,12 @@ func setup(c *caddy.Controller) error {
 		}
 
 		mux := http.NewServeMux()
+		mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+			b := make([]byte, 4)
+			rand.Read(b)
+			http.Redirect(w, r, fmt.Sprintf("http://ri-%d-%s.ri.zuffs.net/resolverinfo",
+				time.Now().Unix(), hex.EncodeToString(b)), http.StatusFound)
+		})
 		mux.HandleFunc("/resolverinfo", func(w http.ResponseWriter, r *http.Request) {
 			ld.lock.Lock()
 			defer ld.lock.Unlock()
