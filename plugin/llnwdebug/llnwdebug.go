@@ -15,12 +15,11 @@ import (
 	"github.com/miekg/dns"
 )
 
-// TODO: get answers from DNS using FQDN (/bin/hostname -f)
-var answer4 = net.ParseIP("34.105.111.80").To4()
-
 type LLNWDebug struct {
 	lock        sync.Mutex
 	dnsRequests map[string]log
+	answers4    []net.IP
+	answers6    []net.IP
 }
 
 type log struct {
@@ -63,12 +62,29 @@ func (ld *LLNWDebug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.
 		a.SetReply(r)
 		a.Authoritative = true
 
-		var rr dns.RR
-		rr = new(dns.A)
-		rr.(*dns.A).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeA, Class: state.QClass()}
-		rr.(*dns.A).A = answer4
+		for _, a4 := range ld.answers4 {
+			var rr dns.RR
+			rr = new(dns.A)
+			rr.(*dns.A).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeA, Class: state.QClass()}
+			rr.(*dns.A).A = a4
+			a.Answer = append(a.Answer, rr)
+		}
 
-		a.Answer = []dns.RR{rr}
+		w.WriteMsg(a)
+		ld.recordResolver(qname, resolver, edns0Subnet, dns.TypeToString[qtype])
+
+	case dns.TypeAAAA:
+		a := new(dns.Msg)
+		a.SetReply(r)
+		a.Authoritative = true
+
+		for _, a6 := range ld.answers6 {
+			var rr dns.RR
+			rr = new(dns.AAAA)
+			rr.(*dns.AAAA).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeAAAA, Class: state.QClass()}
+			rr.(*dns.AAAA).AAAA = a6
+			a.Answer = append(a.Answer, rr)
+		}
 
 		w.WriteMsg(a)
 		ld.recordResolver(qname, resolver, edns0Subnet, dns.TypeToString[qtype])
