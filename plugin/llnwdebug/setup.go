@@ -13,7 +13,7 @@ func init() { plugin.Register("llnwdebug", setup) }
 
 func setup(c *caddy.Controller) error {
 	ld := &LLNWDebug{
-		dnsRequests: make(map[string]string),
+		dnsRequests: make(map[string]log),
 	}
 
 	c.OnStartup(func() error {
