@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coredns/coredns/plugin/metadata"
 	"github.com/coredns/coredns/request"
 	"github.com/miekg/dns"
 )
@@ -33,6 +34,33 @@ type RequestInfo struct {
 	QType       string `json:"-"`
 }
 
+// metadataKeyECS can be used for logging EDNS0 Client Subnet
+const metadataKeyECS = "llnwdebug/edns0subnet"
+
+func (ld *LLNWDebug) Metadata(ctx context.Context, state request.Request) context.Context {
+	var ecs string
+
+	metadata.SetValueFunc(ctx, metadataKeyECS, func() string {
+		if ecs == "" {
+			ecs = edns0Subnet(state.Req)
+		}
+		return ecs
+	})
+	return ctx
+}
+
+func edns0Subnet(r *dns.Msg) string {
+	if opt := r.IsEdns0(); opt != nil {
+		for _, s := range opt.Option {
+			switch e := s.(type) {
+			case *dns.EDNS0_SUBNET:
+				return fmt.Sprintf("%s/%d", e.Address.String(), e.SourceNetmask)
+			}
+		}
+	}
+	return "-"
+}
+
 func (ld *LLNWDebug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 	state := request.Request{W: w, Req: r}
 
@@ -43,54 +71,51 @@ func (ld *LLNWDebug) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.
 		fmt.Printf("Error splitting resolver %s\n", state.RemoteAddr())
 	}
 
-	// TODO: log for real?
-	fmt.Printf("DNS request %s from %s: %s\n", dns.TypeToString[qtype], resolver, qname)
-	var edns0Subnet string
-	if opt := r.IsEdns0(); opt != nil {
-		for _, s := range opt.Option {
-			switch e := s.(type) {
-			case *dns.EDNS0_SUBNET:
-				edns0Subnet = fmt.Sprintf("%s/%d", e.Address.String(), e.SourceNetmask)
-				fmt.Printf("\tEDNS0 SUBNET %s\n", edns0Subnet)
-			}
-		}
-	}
+	// must getECS here, it's unavailable later
+	ecs := getECS(ctx)
 
 	switch qtype {
-	case dns.TypeA:
+	case dns.TypeA, dns.TypeAAAA:
 		a := new(dns.Msg)
 		a.SetReply(r)
 		a.Authoritative = true
 
-		for _, a4 := range ld.answers4 {
-			var rr dns.RR
-			rr = new(dns.A)
-			rr.(*dns.A).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeA, Class: state.QClass()}
-			rr.(*dns.A).A = a4
-			a.Answer = append(a.Answer, rr)
+		switch qtype {
+		case dns.TypeA:
+			for _, a4 := range ld.answers4 {
+				var rr dns.RR
+				rr = new(dns.A)
+				rr.(*dns.A).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeA, Class: state.QClass()}
+				rr.(*dns.A).A = a4
+				a.Answer = append(a.Answer, rr)
+			}
+		case dns.TypeAAAA:
+			for _, a6 := range ld.answers6 {
+				var rr dns.RR
+				rr = new(dns.AAAA)
+				rr.(*dns.AAAA).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeAAAA, Class: state.QClass()}
+				rr.(*dns.AAAA).AAAA = a6
+				a.Answer = append(a.Answer, rr)
+			}
 		}
 
 		w.WriteMsg(a)
-		ld.recordResolver(qname, resolver, edns0Subnet, dns.TypeToString[qtype])
-
-	case dns.TypeAAAA:
-		a := new(dns.Msg)
-		a.SetReply(r)
-		a.Authoritative = true
-
-		for _, a6 := range ld.answers6 {
-			var rr dns.RR
-			rr = new(dns.AAAA)
-			rr.(*dns.AAAA).Hdr = dns.RR_Header{Name: qname, Rrtype: dns.TypeAAAA, Class: state.QClass()}
-			rr.(*dns.AAAA).AAAA = a6
-			a.Answer = append(a.Answer, rr)
+		if ecs == "-" {
+			// for logging, getECS() returns "-" but it should be omitted from the JSON if not present.
+			ecs = ""
 		}
-
-		w.WriteMsg(a)
-		ld.recordResolver(qname, resolver, edns0Subnet, dns.TypeToString[qtype])
+		ld.recordResolver(qname, resolver, ecs, dns.TypeToString[qtype])
 	}
 
 	return dns.RcodeSuccess, nil
+}
+
+func getECS(ctx context.Context) string {
+	f := metadata.ValueFunc(ctx, metadataKeyECS)
+	if f == nil {
+		return ""
+	}
+	return f()
 }
 
 func (ld *LLNWDebug) recordResolver(qname, resolver, EDNS0Subnet, qtype string) {
@@ -123,9 +148,9 @@ func (ld *LLNWDebug) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if ri, ok := ld.dnsRequests[r.Host+"."]; ok {
 		resp.Resolvers = ri.log
-		fmt.Printf("GET from %s %s ResolverInfo: %#v\n", clientAddr, r.Host, ri)
+		fmt.Printf("[llnwdebug-http] %s %s %v\n", clientAddr, r.Host, ri.log)
 	} else {
-		fmt.Printf("GET from %s %s ResolverInfo: unknown\n", clientAddr, r.Host)
+		fmt.Printf("[llnwdebug-http] %s %s unknown\n", clientAddr, r.Host)
 	}
 
 	w.Header().Add("Content-Type", "application/json")

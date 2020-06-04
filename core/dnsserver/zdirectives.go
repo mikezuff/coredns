@@ -21,7 +21,6 @@ var Directives = []string{
 	"debug",
 	"trace",
 	"ready",
-	"llnwdebug",
 	"health",
 	"pprof",
 	"prometheus",
@@ -54,6 +53,7 @@ var Directives = []string{
 	"grpc",
 	"erratic",
 	"whoami",
+	"llnwdebug",
 	"on",
 	"sign",
 }
