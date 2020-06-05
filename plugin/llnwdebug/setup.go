@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/caddyserver/caddy"
 	"github.com/coredns/coredns/core/dnsserver"
@@ -20,11 +21,20 @@ func setup(c *caddy.Controller) error {
 		return err
 	}
 
-	ld := &LLNWDebug{
-		dnsRequests: make(map[string]log),
-		answers4:    a4,
-		answers6:    a6,
-	}
+	ld := NewLLNWDebug(a4, a6)
+
+	go func() {
+		var (
+			period = 30 * time.Minute
+			maxAge = -24 * time.Hour
+		)
+		c := time.Tick(period)
+		for range c {
+			t := time.Now().Add(maxAge)
+			rm, total := ld.Cleanup(t)
+			fmt.Printf("[llnwdebug] cleaned %d of %d RequestInfo entries older than %s\n", rm, total, t)
+		}
+	}()
 
 	c.OnStartup(func() error {
 		ln, err := reuseport.Listen("tcp", ":80")
@@ -37,6 +47,7 @@ func setup(c *caddy.Controller) error {
 		mux.Handle("/resolverinfo", ld)
 
 		go func() { http.Serve(ln, mux) }()
+
 		return nil
 	})
 

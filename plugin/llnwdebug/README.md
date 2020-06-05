@@ -9,7 +9,13 @@
 The *llnwdebug* plugin serves an HTTP endpoint that is accessed via a unique hostname.
 Information about the DNS request for that hostname is returned via the endpoint.
 
-## Example
+## Syntax
+
+~~~ txt
+llnwdebug
+~~~
+
+## Examples
 
 This plugin provides two endpoints in any zone which it is applied.
 

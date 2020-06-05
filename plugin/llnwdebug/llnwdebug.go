@@ -34,6 +34,14 @@ type RequestInfo struct {
 	QType       string `json:"-"`
 }
 
+func NewLLNWDebug(a4, a6 []net.IP) *LLNWDebug {
+	return &LLNWDebug{
+		dnsRequests: make(map[string]log),
+		answers4:    a4,
+		answers6:    a6,
+	}
+}
+
 // metadataKeyECS can be used for logging EDNS0 Client Subnet
 const metadataKeyECS = "llnwdebug/edns0subnet"
 
@@ -125,12 +133,26 @@ func (ld *LLNWDebug) recordResolver(qname, resolver, EDNS0Subnet, qtype string) 
 	defer ld.lock.Unlock()
 
 	l := ld.dnsRequests[qname]
-	if len(l.log) > 10 {
+	if len(l.log) >= 10 {
 		return // we're being abused
 	}
 	l.lastUpdate = now
 	l.log = append(l.log, RequestInfo{Resolver: resolver, EDNS0Subnet: EDNS0Subnet, QType: qtype})
 	ld.dnsRequests[qname] = l
+}
+
+func (ld *LLNWDebug) Cleanup(before time.Time) (removed, total int) {
+	ld.lock.Lock()
+	defer ld.lock.Unlock()
+
+	total = len(ld.dnsRequests)
+	for k, r := range ld.dnsRequests {
+		if r.lastUpdate.Before(before) {
+			delete(ld.dnsRequests, k)
+			removed++
+		}
+	}
+	return
 }
 
 // ServeHTTP responds with information about the DNS resolver.

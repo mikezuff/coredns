@@ -14,6 +14,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.0.2
 	github.com/dnstap/golang-dnstap v0.2.0
 	github.com/farsightsec/golang-framestream v0.0.0-20190425193708-fa4b164d59b8
+	github.com/go-test/deep v1.0.6
 	github.com/golang/protobuf v1.4.2
 	github.com/gophercloud/gophercloud v0.9.0 // indirect
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645
